@@ -1,16 +1,32 @@
 /* =============================================
    Promised Land — app.js
-   Backend: Supabase (100% Free)
+   Backend: Supabase REST API (most reliable)
    ============================================= */
 
-import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js/+esm";
-
 const SUPABASE_URL  = "https://neujmakqnnwihfmynhfp.supabase.co";
-const SUPABASE_ANON = "sb_publishable_IJXILB_QuchCSyM77qsmmw_68kv-P3w";
+const SUPABASE_KEY  = "sb_publishable_IJXILB_QuchCSyM77qsmmw_68kv-P3w";
 
-const supabase = createClient(SUPABASE_URL, SUPABASE_ANON);
+/* ── SUPABASE FETCH HELPER ── */
+async function sbFetch(path, options = {}) {
+  const res = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, {
+    ...options,
+    headers: {
+      "apikey":        SUPABASE_KEY,
+      "Authorization": `Bearer ${SUPABASE_KEY}`,
+      "Content-Type":  "application/json",
+      "Prefer":        options.prefer || "return=minimal",
+      ...(options.headers || {})
+    }
+  });
+  if (!res.ok) {
+    const err = await res.text();
+    throw new Error(err);
+  }
+  const text = await res.text();
+  return text ? JSON.parse(text) : null;
+}
 
-/* ── SEED DATA (always visible as demo) ── */
+/* ── SEED DATA ── */
 const SEED = [
   { id:"s1", title:"Prime Residential Plot",  type:"Plot",        district:"Ramanathapuram", area:"Pamban Beach Road",       price:2500000,  size:"1200 sqft", phone:"9080581547", description:"DTCP approved plot near Pamban Beach. Road access, water & electricity available.", photo_url:"" },
   { id:"s2", title:"Luxury Sea View Villa",   type:"Villa",       district:"Chennai",        area:"ECR, Kovalam",            price:12000000, size:"2400 sqft", phone:"9080581547", description:"3 BHK luxury villa with private garden & sea view. Gated community, 24/7 security.", photo_url:"" },
@@ -25,18 +41,15 @@ let allProperties = [...SEED];
 /* ── LOAD APPROVED FROM SUPABASE ── */
 async function loadProperties() {
   try {
-    const { data, error } = await supabase
-      .from("properties")
-      .select("*")
-      .eq("status", "approved")
-      .order("created_at", { ascending: false });
-
-    if (error) throw error;
+    const data = await sbFetch(
+      "properties?status=eq.approved&order=created_at.desc",
+      { prefer: "return=representation" }
+    );
     if (data && data.length > 0) {
       allProperties = [...data, ...SEED];
     }
   } catch(e) {
-    console.warn("Could not load from Supabase:", e.message);
+    console.warn("Load error:", e.message);
   }
   renderProperties(allProperties);
 }
@@ -92,7 +105,6 @@ window.filterProperties = function() {
   const search = document.getElementById("searchInput").value.toLowerCase();
   const type   = document.getElementById("filterType").value;
   const budget = document.getElementById("filterBudget").value;
-
   const filtered = allProperties.filter(p => {
     const ms = !search
       || (p.title||"").toLowerCase().includes(search)
@@ -102,10 +114,10 @@ window.filterProperties = function() {
     let mb = true;
     if (budget) {
       const l = p.price / 100000;
-      if      (budget === "20")  mb = l < 20;
-      else if (budget === "50")  mb = l >= 20 && l <= 50;
-      else if (budget === "100") mb = l > 50  && l <= 100;
-      else if (budget === "999") mb = l > 100;
+      if      (budget==="20")  mb = l < 20;
+      else if (budget==="50")  mb = l >= 20 && l <= 50;
+      else if (budget==="100") mb = l > 50  && l <= 100;
+      else if (budget==="999") mb = l > 100;
     }
     return ms && mt && mb;
   });
@@ -143,7 +155,7 @@ window.openModal = function(id) {
     </div>
     <div class="modal-desc">${p.description || "Contact us for more details."}</div>
     <a class="modal-wa"
-       href="https://wa.me/91${p.phone}?text=${encodeURIComponent("Hi, I'm interested in: " + p.title + " – " + p.district)}"
+       href="https://wa.me/91${p.phone}?text=${encodeURIComponent("Hi, I'm interested in: "+p.title+" – "+p.district)}"
        target="_blank">💬 Contact on WhatsApp</a>`;
   document.getElementById("modalOverlay").classList.add("open");
 };
@@ -153,80 +165,79 @@ window.closeModal = function() {
 };
 
 window.waContact = function(phone, title) {
-  window.open(`https://wa.me/91${phone}?text=${encodeURIComponent("Hi, I'm interested in: " + title)}`, "_blank");
+  window.open(`https://wa.me/91${phone}?text=${encodeURIComponent("Hi, I'm interested in: "+title)}`, "_blank");
 };
 
 /* ── CALCULATORS ── */
 window.showCalc = function(name) {
   document.querySelectorAll(".calc-box").forEach(b => b.classList.remove("active"));
   document.querySelectorAll(".calc-tab").forEach(t => t.classList.remove("active"));
-  document.getElementById("calc-" + name).classList.add("active");
+  document.getElementById("calc-"+name).classList.add("active");
   event.target.classList.add("active");
 };
 
-function showResult(id, title, rows, note = "") {
+function showResult(id, title, rows, note="") {
   const el = document.getElementById(id);
   el.innerHTML = `
     <strong style="font-size:1rem;color:var(--navy);display:block;margin-bottom:12px">${title}</strong>
     <div class="result-grid">
-      ${rows.map(([v,l]) => `<div class="result-item"><strong>${v}</strong><span>${l}</span></div>`).join("")}
+      ${rows.map(([v,l])=>`<div class="result-item"><strong>${v}</strong><span>${l}</span></div>`).join("")}
     </div>
-    ${note ? `<small style="color:var(--text-muted);display:block;margin-top:10px">${note}</small>` : ""}`;
+    ${note?`<small style="color:var(--text-muted);display:block;margin-top:10px">${note}</small>`:""}`;
   el.classList.add("show");
 }
 
 window.calcEMI = function() {
-  const P = +document.getElementById("emiAmount").value;
-  const r = +document.getElementById("emiRate").value / 12 / 100;
-  const n = +document.getElementById("emiYears").value * 12;
-  if (!P||!r||!n) return alert("Please fill all fields.");
-  const emi = P * r * Math.pow(1+r,n) / (Math.pow(1+r,n) - 1);
-  const total = emi * n;
-  showResult("emiResult", "📊 EMI Result", [
-    [formatPrice(Math.round(emi)),    "Monthly EMI"],
-    [formatPrice(Math.round(total)),  "Total Payment"],
+  const P=+document.getElementById("emiAmount").value;
+  const r=+document.getElementById("emiRate").value/12/100;
+  const n=+document.getElementById("emiYears").value*12;
+  if(!P||!r||!n) return alert("Please fill all fields.");
+  const emi=P*r*Math.pow(1+r,n)/(Math.pow(1+r,n)-1), total=emi*n;
+  showResult("emiResult","📊 EMI Result",[
+    [formatPrice(Math.round(emi)),"Monthly EMI"],
+    [formatPrice(Math.round(total)),"Total Payment"],
     [formatPrice(Math.round(total-P)),"Total Interest"],
-    [formatPrice(P),                  "Principal"]
+    [formatPrice(P),"Principal"]
   ]);
 };
 
 window.calcStamp = function() {
-  const val = +document.getElementById("stampValue").value;
-  if (!val) return alert("Enter property value.");
-  const rate = document.getElementById("stampType").value === "agriculture" ? 0.05 : 0.07;
-  const reg  = Math.min(val * 0.01, 40000);
-  showResult("stampResult", "📜 TN Stamp Duty Estimate", [
-    [formatPrice(Math.round(val*rate)),       `Stamp Duty (${(rate*100).toFixed(0)}%)`],
-    [formatPrice(Math.round(reg)),            "Registration Fee"],
-    [formatPrice(Math.round(val*rate + reg)), "Total Cost"]
-  ], "⚠️ Estimated. Verify at your local sub-registrar office.");
+  const val=+document.getElementById("stampValue").value;
+  if(!val) return alert("Enter property value.");
+  const rate=document.getElementById("stampType").value==="agriculture"?0.05:0.07;
+  const reg=Math.min(val*0.01,40000);
+  showResult("stampResult","📜 TN Stamp Duty Estimate",[
+    [formatPrice(Math.round(val*rate)),`Stamp Duty (${(rate*100).toFixed(0)}%)`],
+    [formatPrice(Math.round(reg)),"Registration Fee"],
+    [formatPrice(Math.round(val*rate+reg)),"Total Cost"]
+  ],"⚠️ Estimated. Verify at your local sub-registrar office.");
 };
 
 window.calcRental = function() {
-  const val  = +document.getElementById("rentalValue").value;
-  const rent = +document.getElementById("rentalRent").value;
-  const maint= +document.getElementById("rentalMaint").value || 0;
-  if (!val||!rent) return alert("Fill property value and monthly rent.");
-  const ann = rent * 12, net = ann - maint;
-  showResult("rentalResult", "🏘️ Rental Yield", [
-    [(ann/val*100).toFixed(2)+"%", "Gross Yield"],
-    [(net/val*100).toFixed(2)+"%", "Net Yield"],
-    [formatPrice(Math.round(ann)), "Annual Income"],
-    [(val/net).toFixed(1)+" yrs",  "Break-even"]
+  const val=+document.getElementById("rentalValue").value;
+  const rent=+document.getElementById("rentalRent").value;
+  const maint=+document.getElementById("rentalMaint").value||0;
+  if(!val||!rent) return alert("Fill property value and monthly rent.");
+  const ann=rent*12, net=ann-maint;
+  showResult("rentalResult","🏘️ Rental Yield",[
+    [(ann/val*100).toFixed(2)+"%","Gross Yield"],
+    [(net/val*100).toFixed(2)+"%","Net Yield"],
+    [formatPrice(Math.round(ann)),"Annual Income"],
+    [(val/net).toFixed(1)+" yrs","Break-even"]
   ]);
 };
 
 window.calcAppreciation = function() {
-  const val  = +document.getElementById("appValue").value;
-  const rate = +document.getElementById("appRate").value / 100;
-  const yrs  = +document.getElementById("appYears").value;
-  if (!val||!rate||!yrs) return alert("Fill all fields.");
-  const fut = val * Math.pow(1+rate, yrs);
-  showResult("appResult", "📈 Property Appreciation", [
-    [formatPrice(Math.round(fut)),        `Value in ${yrs} yrs`],
-    [formatPrice(Math.round(fut - val)),  "Expected Gain"],
-    [(rate*100).toFixed(1)+"%",           "Growth p.a."],
-    [((fut-val)/val*100).toFixed(0)+"%",  "Total Return"]
+  const val=+document.getElementById("appValue").value;
+  const rate=+document.getElementById("appRate").value/100;
+  const yrs=+document.getElementById("appYears").value;
+  if(!val||!rate||!yrs) return alert("Fill all fields.");
+  const fut=val*Math.pow(1+rate,yrs);
+  showResult("appResult","📈 Property Appreciation",[
+    [formatPrice(Math.round(fut)),`Value in ${yrs} yrs`],
+    [formatPrice(Math.round(fut-val)),"Expected Gain"],
+    [(rate*100).toFixed(1)+"%","Growth p.a."],
+    [((fut-val)/val*100).toFixed(0)+"%","Total Return"]
   ]);
 };
 
@@ -235,7 +246,7 @@ window.submitProperty = async function(e) {
   e.preventDefault();
   const btn = e.target.querySelector(".btn-submit");
   btn.textContent = "⏳ Submitting...";
-  btn.disabled    = true;
+  btn.disabled = true;
 
   const payload = {
     title:       document.getElementById("propTitle").value.trim(),
@@ -246,24 +257,25 @@ window.submitProperty = async function(e) {
     size:        document.getElementById("propSize").value.trim(),
     description: document.getElementById("propDesc").value.trim(),
     photo_url:   document.getElementById("propPhoto").value.trim(),
-    phone:       document.getElementById("ownerPhone").value.replace(/\D/g, ""),
+    phone:       document.getElementById("ownerPhone").value.replace(/\D/g,""),
     owner_name:  document.getElementById("ownerName").value.trim(),
     status:      "pending"
   };
 
   try {
-    const { error } = await supabase.from("properties").insert([payload]);
-    if (error) throw error;
+    await sbFetch("properties", {
+      method:  "POST",
+      prefer:  "return=minimal",
+      body:    JSON.stringify(payload)
+    });
+    document.getElementById("postForm").style.display    = "none";
+    document.getElementById("postSuccess").style.display = "block";
+    document.getElementById("postSuccess").scrollIntoView({ behavior:"smooth" });
   } catch(err) {
     alert("❌ Submission failed: " + err.message);
     btn.textContent = "🚀 Submit Property Listing";
     btn.disabled = false;
-    return;
   }
-
-  document.getElementById("postForm").style.display    = "none";
-  document.getElementById("postSuccess").style.display = "block";
-  document.getElementById("postSuccess").scrollIntoView({ behavior:"smooth" });
 };
 
 /* ── HAMBURGER & SCROLL ── */
@@ -277,8 +289,12 @@ window.addEventListener("scroll", () => {
     window.scrollY > 10 ? "0 4px 24px rgba(0,0,0,0.4)" : "none";
 });
 document.getElementById("searchInput").addEventListener("keydown", e => {
-  if (e.key === "Enter") window.filterProperties();
+  if (e.key==="Enter") window.filterProperties();
 });
+
+/* ── ALSO FIX index.html script tag ── */
+/* Make sure index.html has: <script src="app.js"></script>  */
+/* NOT: <script type="module" src="app.js"></script>         */
 
 /* ── BOOT ── */
 loadProperties();
